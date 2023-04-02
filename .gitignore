@@ -4,6 +4,7 @@ test
 Makefile
 x
 z
+*.rom
 
 # Prerequisites
 *.d

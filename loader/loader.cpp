@@ -21,8 +21,6 @@ int main() {
 
 	if ( dev.open( "\\\\.\\Simple_Driver_Example" ) ) {
 		printf( "Opened.\n" );
-		Sleep( 1000 );
-		dev.close();
 	} else {
 		printf( "Not registered/started. Trying to load driver...\n" );
 	}
@@ -41,12 +39,31 @@ int main() {
 			return 1;
 		}
 
-		printf( "Ok. Check debug message log.\n" );
+		// Try to open it again...
+		if ( !dev.open( "\\\\.\\Simple_Driver_Example" ) ) {
+			print_last_error( "Open" );
+			return 2;
+		}
+
+		printf( "Opened. Check debug message log.\n" );
+
 	}
 
 
+	char	data[8]			= { 1, 2, 3, 4, 5, 5, 5, 0 };
+	DWORD	dwBytesReturned	= 0;
+	BOOL r = DeviceIoControl( dev.get_handle(),
+		0x1234,
+		data, sizeof( data ),	// in
+		nullptr, 0,				// out
+		&dwBytesReturned, nullptr );
+
+	printf( "DeviceIoControl(): %d, ret. bytes: %d\n", int(r), int(dwBytesReturned) );
+
+	// Just wait a little...
 	Sleep( 3000 );
 
+	dev.close();
 
 	printf( "Unloading...\n" );
 	if ( !scm.stop_and_unload_driver( "simple_driver" ) ) {

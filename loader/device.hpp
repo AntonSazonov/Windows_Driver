@@ -10,6 +10,8 @@ public:
 
 	explicit operator bool () const { return m_handle != INVALID_HANDLE_VALUE; }
 
+	HANDLE get_handle() { return m_handle; }
+
 	bool open( const char * name ) {
 		if ( m_handle != INVALID_HANDLE_VALUE ) close();
 

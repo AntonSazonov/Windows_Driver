@@ -1,4 +1,7 @@
+#define DBG 1
+#define IRPMJFUNCDESC
 #include <ntddk.h>
+#include <ksdebug.h>
 
 extern "C" DRIVER_INITIALIZE	DriverEntry;
 extern "C" DRIVER_UNLOAD		DriverUnload;
@@ -9,6 +12,31 @@ extern "C" DRIVER_UNLOAD		DriverUnload;
 
 extern "C" NTSTATUS EventCreateClose( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_Irp ) {
 	PIO_STACK_LOCATION p_io = IoGetCurrentIrpStackLocation( p_Irp );
+
+	// Check out-of-bounds...
+#if 1
+	if ( p_io->MajorFunction <= sizeof( IrpMjFuncDesc ) / sizeof( IrpMjFuncDesc[0] ) ) {
+		DbgPrint( "%s\n", IrpMjFuncDesc[p_io->MajorFunction] );
+	} else {
+		DbgPrint( "Unknown Major function: %08x\n", p_io->MajorFunction );
+	}
+#endif
+
+	if ( p_io->MajorFunction == IRP_MJ_DEVICE_CONTROL ) {
+		DbgPrint( "IO code: %08x\n", p_io->Parameters.DeviceIoControl.IoControlCode );
+		DbgPrint( "                 ptr = %p\n", p_Irp->AssociatedIrp.SystemBuffer );
+		DbgPrint( "  OutputBufferLength = %d\n", p_io->Parameters.DeviceIoControl.OutputBufferLength );
+		DbgPrint( "   InputBufferLength = %d\n", p_io->Parameters.DeviceIoControl.InputBufferLength );
+
+		char * p = (char *)p_Irp->AssociatedIrp.SystemBuffer;
+		DbgPrint( " " );
+		for ( int i = 0; i < p_io->Parameters.DeviceIoControl.InputBufferLength; i++ ) {
+			DbgPrint( " %d", int(p[i]) );
+		}
+		DbgPrint( "\n" );
+	}
+
+#if 0
 	switch ( p_io->MajorFunction ) {
 		case IRP_MJ_CREATE:
 			DbgPrint( "IRP_MJ_CREATE\n" );
@@ -19,21 +47,35 @@ extern "C" NTSTATUS EventCreateClose( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_
 			break;
 
 		default:
-			DbgPrint( "Unknown IRP\n" );
+			DbgPrint( "Unknown IRP (%08x)\n", p_io->MajorFunction );
+			DbgPrint( "%s\n", IrpMjFuncDesc[p_io->MajorFunction] );
 			break;
 	}
+#endif
+
+	p_Irp->IoStatus.Status		= STATUS_SUCCESS;
+	p_Irp->IoStatus.Information	= 0;
 	IoCompleteRequest( p_Irp, IO_NO_INCREMENT );
 	return STATUS_SUCCESS;
 }
 
+extern "C" NTSTATUS EventCleanup( PDEVICE_OBJECT /*DeviceObjec*/, PIRP /*Irp*/ ) {
+	DbgPrint( "%s\n", __PRETTY_FUNCTION__ );
+	return STATUS_SUCCESS;
+}
+
+extern "C" NTSTATUS EventDispatchIoControl( PDEVICE_OBJECT /*DeviceObject*/, PIRP /*Irp*/ ) {
+	DbgPrint( "%s\n", __PRETTY_FUNCTION__ );
+	return STATUS_SUCCESS;
+}
 
 extern "C" NTSTATUS DriverEntry( PDRIVER_OBJECT p_DriverObject, PUNICODE_STRING /*RegistryPath*/ ) {
 
-	p_DriverObject->MajorFunction[IRP_MJ_CREATE]	= EventCreateClose;
-	p_DriverObject->MajorFunction[IRP_MJ_CLOSE]		= EventCreateClose;
-	//p_DriverObject->MajorFunction[IRP_MJ_CLEANUP]			= EventCleanup;				// Not yet implemented
-	//p_DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]	= EventDispatchIoControl;
-	p_DriverObject->DriverUnload					= DriverUnload;
+	p_DriverObject->MajorFunction[IRP_MJ_CREATE]			= EventCreateClose;
+	p_DriverObject->MajorFunction[IRP_MJ_CLOSE]				= EventCreateClose;
+	p_DriverObject->MajorFunction[IRP_MJ_CLEANUP]			= EventCreateClose;//EventCleanup;
+	p_DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]	= EventCreateClose;//EventDispatchIoControl;
+	p_DriverObject->DriverUnload							= DriverUnload;
 
 	UNICODE_STRING ntDeviceName;
 	RtlInitUnicodeString( &ntDeviceName, NTDEVICE_NAME_STRING );
