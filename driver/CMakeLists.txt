@@ -10,7 +10,7 @@ set( PATH_DDK "C:/msys2/ucrt64/include/ddk" )
 message( STATUS "PATH_SDK: ${PATH_SDK}" )
 #file( TO_CMAKE_PATH ${PATH_SDK} ${PATH_SDK} )
 
-find_program( SIGNTOOL signtool PATHS ${PATH_SDK} NO_SYSTEM_ENVIRONMENT_PATH )
+find_program( SIGNTOOL signtool PATHS ${PATH_SDK} NO_DEFAULT_PATH NO_PACKAGE_ROOT_PATH NO_CMAKE_PATH NO_CMAKE_ENVIRONMENT_PATH NO_SYSTEM_ENVIRONMENT_PATH NO_CMAKE_SYSTEM_PATH NO_CMAKE_INSTALL_PREFIX NO_CMAKE_FIND_ROOT_PATH )
 if( NOT SIGNTOOL )
  message( FATAL_ERROR "SignTool not found. Check your Windows SDK path." )
 endif()
@@ -20,11 +20,11 @@ message( STATUS "SignTool: ${SIGNTOOL}" )
 project( simple_driver )
 
 # CMAKE_CXX_COMPILER_ID is set only after project was defined.
-if( CMAKE_CXX_COMPILER_ID STREQUAL "Clang" )
-elseif( CMAKE_CXX_COMPILER_ID STREQUAL "GNU" )
-else()
- message( FATAL_ERROR "This program can be compiled only with GNU or Clang toolchain." )
-endif()
+#if( CMAKE_CXX_COMPILER_ID STREQUAL "Clang" )
+#elseif( CMAKE_CXX_COMPILER_ID STREQUAL "GNU" )
+#else()
+# message( FATAL_ERROR "This program can be compiled only with GNU or Clang toolchain." )
+#endif()
 
 add_executable( simple_driver simple_driver.cpp )
 
@@ -42,5 +42,5 @@ target_link_libraries     ( simple_driver PRIVATE ntoskrnl hal )
 
 # Sign driver
 add_custom_command( TARGET simple_driver POST_BUILD
-	COMMAND ${SIGNTOOL} sign /ph /fd "sha256" /sha1 "670A7019D58F3BC17BB1FDEFA39D31988D1E3EE2" $<TARGET_FILE:simple_driver>
+	COMMAND ${SIGNTOOL} sign /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 /v /f ${CMAKE_CURRENT_SOURCE_DIR}/OEM_Test_Cert_2017.pfx $<TARGET_FILE:simple_driver>
 )
