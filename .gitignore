@@ -1,10 +1,13 @@
 build/
 test
+tools
+test_xp
 *.cmd
 Makefile
 x
 z
 *.rom
+*.log
 
 # Prerequisites
 *.d

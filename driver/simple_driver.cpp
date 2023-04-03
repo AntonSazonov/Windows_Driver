@@ -1,7 +1,6 @@
-#define DBG 1
-#define IRPMJFUNCDESC
+
 #include <ntddk.h>
-#include <ksdebug.h>
+#include "simple_driver.hpp"
 
 extern "C" DRIVER_INITIALIZE	DriverEntry;
 extern "C" DRIVER_UNLOAD		DriverUnload;
@@ -9,49 +8,110 @@ extern "C" DRIVER_UNLOAD		DriverUnload;
 #define NTDEVICE_NAME_STRING      L"\\Device\\Simple_Driver_Example"
 #define SYMBOLIC_NAME_STRING      L"\\DosDevices\\Simple_Driver_Example"
 
+namespace {
 
-extern "C" NTSTATUS EventCreateClose( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_Irp ) {
-	PIO_STACK_LOCATION p_io = IoGetCurrentIrpStackLocation( p_Irp );
+ULONG	g_size			= 0;
+PVOID	g_map			= nullptr;
+PMDL	g_mdl			= nullptr;
+PVOID	g_map_locked	= nullptr;
 
-	// Check out-of-bounds...
-#if 1
-	if ( p_io->MajorFunction <= sizeof( IrpMjFuncDesc ) / sizeof( IrpMjFuncDesc[0] ) ) {
-		DbgPrint( "%s\n", IrpMjFuncDesc[p_io->MajorFunction] );
-	} else {
-		DbgPrint( "Unknown Major function: %08x\n", p_io->MajorFunction );
-	}
-#endif
+} // namespace
 
-	if ( p_io->MajorFunction == IRP_MJ_DEVICE_CONTROL ) {
-		DbgPrint( "IO code: %08x\n", p_io->Parameters.DeviceIoControl.IoControlCode );
-		DbgPrint( "                 ptr = %p\n", p_Irp->AssociatedIrp.SystemBuffer );
-		DbgPrint( "  OutputBufferLength = %d\n", p_io->Parameters.DeviceIoControl.OutputBufferLength );
-		DbgPrint( "   InputBufferLength = %d\n", p_io->Parameters.DeviceIoControl.InputBufferLength );
+void phys_free() {
+	DbgPrint( "%s: unmapping phys.: %p, virt.: %p, size: %lu\n", __PRETTY_FUNCTION__, g_map, g_map_locked, g_size );
 
-		char * p = (char *)p_Irp->AssociatedIrp.SystemBuffer;
-		DbgPrint( " " );
-		for ( int i = 0; i < p_io->Parameters.DeviceIoControl.InputBufferLength; i++ ) {
-			DbgPrint( " %d", int(p[i]) );
-		}
-		DbgPrint( "\n" );
+	if ( g_map_locked && g_mdl ) {
+		MmUnmapLockedPages( g_map_locked, g_mdl );
+		g_map_locked	= nullptr;
+		g_mdl			= nullptr;
 	}
 
-#if 0
-	switch ( p_io->MajorFunction ) {
-		case IRP_MJ_CREATE:
-			DbgPrint( "IRP_MJ_CREATE\n" );
-			break;
-
-		case IRP_MJ_CLOSE:
-			DbgPrint( "IRP_MJ_CLOSE\n" );
-			break;
-
-		default:
-			DbgPrint( "Unknown IRP (%08x)\n", p_io->MajorFunction );
-			DbgPrint( "%s\n", IrpMjFuncDesc[p_io->MajorFunction] );
-			break;
+	if ( g_mdl ) {
+		IoFreeMdl( g_mdl );
+		g_mdl = nullptr;
 	}
-#endif
+
+	if ( g_map && g_size ) {
+		MmUnmapIoSpace( g_map, g_size );
+		g_map	= nullptr;
+		g_size	= 0;
+	}
+}
+
+NTSTATUS phys_map( PVOID p_addr, ULONG size, PVOID * pp_mapped ) {
+
+	// Free previously mapped memory.
+	phys_free();
+
+	if ( !size || !pp_mapped ) return STATUS_INVALID_PARAMETER;
+
+	PHYSICAL_ADDRESS phy_addr;
+	phy_addr.QuadPart = (ULONGLONG)p_addr;
+
+	// If space for mapping the range is insufficient, it returns NULL.
+	PVOID p_map = MmMapIoSpace( phy_addr, size, MmNonCached );
+	if ( !p_map ) {
+		DbgPrint( "%s: MmMapIoSpace() error.\n", __PRETTY_FUNCTION__ );
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+	g_size = size;
+
+	// If the MDL cannot be allocated, it returns NULL.
+	PMDL p_mdl = IoAllocateMdl( p_map, size, FALSE, FALSE, NULL );
+	if ( !p_mdl ) {
+		DbgPrint( "%s: IoAllocateMdl() error.\n", __PRETTY_FUNCTION__ );
+		phys_free();
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+
+	// Describe the underlying physical pages...
+	MmBuildMdlForNonPagedPool( p_mdl );
+
+	PVOID p_map_locked = MmMapLockedPagesSpecifyCache(
+		p_mdl,					// Memory Descriptor List.
+		UserMode,				// Access mode: KernelMode or UserMode.
+		MmNonCached,			// Cache Type.
+		NULL,					// Requested Address. Set to NULL to allow the system to choose the starting address.
+		FALSE, 					// Drivers must set this parameter to FALSE.
+		NormalPagePriority );	// Priority.
+
+	if ( !p_map_locked ) {
+		DbgPrint( "%s: MmMapLockedPagesSpecifyCache() error.\n", __PRETTY_FUNCTION__ );
+		phys_free();
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+
+
+	*pp_mapped = p_map_locked;
+
+	g_map = p_map;
+	g_mdl = p_mdl;
+	g_map_locked = p_map_locked;
+
+	return STATUS_SUCCESS;
+}
+
+
+extern "C" NTSTATUS Create( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_Irp ) {
+	DbgPrint( "%s\n", __PRETTY_FUNCTION__ );
+	p_Irp->IoStatus.Status		= STATUS_SUCCESS;
+	p_Irp->IoStatus.Information	= 0;
+	IoCompleteRequest( p_Irp, IO_NO_INCREMENT );
+	return STATUS_SUCCESS;
+}
+
+extern "C" NTSTATUS Close( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_Irp ) {
+	DbgPrint( "%s\n", __PRETTY_FUNCTION__ );
+	p_Irp->IoStatus.Status		= STATUS_SUCCESS;
+	p_Irp->IoStatus.Information	= 0;
+	IoCompleteRequest( p_Irp, IO_NO_INCREMENT );
+	return STATUS_SUCCESS;
+}
+
+extern "C" NTSTATUS Cleanup( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_Irp ) {
+	DbgPrint( "%s\n", __PRETTY_FUNCTION__ );
+
+	phys_free(); // Free if any allocated...
 
 	p_Irp->IoStatus.Status		= STATUS_SUCCESS;
 	p_Irp->IoStatus.Information	= 0;
@@ -59,23 +119,78 @@ extern "C" NTSTATUS EventCreateClose( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_
 	return STATUS_SUCCESS;
 }
 
-extern "C" NTSTATUS EventCleanup( PDEVICE_OBJECT /*DeviceObjec*/, PIRP /*Irp*/ ) {
+extern "C" NTSTATUS IoControl( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_Irp ) {
 	DbgPrint( "%s\n", __PRETTY_FUNCTION__ );
-	return STATUS_SUCCESS;
+
+	// Default status is successful.
+	p_Irp->IoStatus.Status = STATUS_SUCCESS;
+	p_Irp->IoStatus.Information	= 0;
+
+	PIO_STACK_LOCATION p_io = IoGetCurrentIrpStackLocation( p_Irp );
+
+	PVOID	p_buffer		= p_Irp->AssociatedIrp.SystemBuffer;
+	ULONG	u_buffer_out	= p_io->Parameters.DeviceIoControl.OutputBufferLength;
+	ULONG	u_buffer_in		= p_io->Parameters.DeviceIoControl.InputBufferLength;
+
+	ULONG code = p_io->Parameters.DeviceIoControl.IoControlCode;
+	switch ( code ) {
+		case MY_DEVICE_IOCTL_MAP: {
+
+			// Check for correct parameters...
+			if ( u_buffer_in != sizeof( PHYS_MEM_DESC ) || u_buffer_out != sizeof( PVOID ) ) {
+				DbgPrint( "%s: Invalid parameters.\n", __PRETTY_FUNCTION__ );
+				p_Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+				break;
+			}
+
+			PHYS_MEM_DESC * p_phy_mem = (PHYS_MEM_DESC *)p_buffer;
+
+			PVOID p_mapped = nullptr;
+			p_Irp->IoStatus.Status = phys_map( p_phy_mem->p_addr, p_phy_mem->u_size, &p_mapped );
+			if ( p_Irp->IoStatus.Status != STATUS_SUCCESS ) break;
+
+			RtlCopyMemory( p_buffer, &p_mapped, sizeof( PVOID ) );
+
+			p_Irp->IoStatus.Information = sizeof( PVOID );
+
+			DbgPrint( "%s: mapped at %p.\n", __PRETTY_FUNCTION__, p_mapped );
+		} break;
+
+		case MY_DEVICE_IOCTL_UNMAP:
+			DbgPrint( "%s: MY_DEVICE_IOCTL_UNMAP\n", __PRETTY_FUNCTION__ );
+
+			// Unmap last mapped.
+			phys_free();
+			break;
+
+		default:
+			DbgPrint( "%s: Unknown IO control code %08x.\n", __PRETTY_FUNCTION__, code );
+			break;
+	}
+
+	IoCompleteRequest( p_Irp, IO_NO_INCREMENT );
+	return p_Irp->IoStatus.Status;
 }
 
-extern "C" NTSTATUS EventDispatchIoControl( PDEVICE_OBJECT /*DeviceObject*/, PIRP /*Irp*/ ) {
+
+extern "C" void Unload( PDRIVER_OBJECT p_DriverObject ) {
+	PDEVICE_OBJECT p_DeviceObject = p_DriverObject->DeviceObject;
 	DbgPrint( "%s\n", __PRETTY_FUNCTION__ );
-	return STATUS_SUCCESS;
+
+	// Delete the user-mode symbolic link and DeviceObject.
+	UNICODE_STRING symbolicLinkName;
+	RtlInitUnicodeString( &symbolicLinkName, SYMBOLIC_NAME_STRING );
+	IoDeleteSymbolicLink( &symbolicLinkName );
+	IoDeleteDevice( p_DeviceObject );
 }
 
 extern "C" NTSTATUS DriverEntry( PDRIVER_OBJECT p_DriverObject, PUNICODE_STRING /*RegistryPath*/ ) {
 
-	p_DriverObject->MajorFunction[IRP_MJ_CREATE]			= EventCreateClose;
-	p_DriverObject->MajorFunction[IRP_MJ_CLOSE]				= EventCreateClose;
-	p_DriverObject->MajorFunction[IRP_MJ_CLEANUP]			= EventCreateClose;//EventCleanup;
-	p_DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]	= EventCreateClose;//EventDispatchIoControl;
-	p_DriverObject->DriverUnload							= DriverUnload;
+	p_DriverObject->MajorFunction[IRP_MJ_CREATE]			= Create;
+	p_DriverObject->MajorFunction[IRP_MJ_CLOSE]				= Close;
+	p_DriverObject->MajorFunction[IRP_MJ_CLEANUP]			= Cleanup;
+	p_DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]	= IoControl;
+	p_DriverObject->DriverUnload							= Unload;
 
 	UNICODE_STRING ntDeviceName;
 	RtlInitUnicodeString( &ntDeviceName, NTDEVICE_NAME_STRING );
@@ -85,7 +200,7 @@ extern "C" NTSTATUS DriverEntry( PDRIVER_OBJECT p_DriverObject, PUNICODE_STRING 
 		p_DriverObject,
 		0,//sizeof( DEVICE_EXTENSION ),
 		&ntDeviceName,
-		FILE_DEVICE_UNKNOWN,
+		MY_DEVICE_TYPE,
 		FILE_DEVICE_SECURE_OPEN,
 		FALSE,
 		&p_DeviceObject );
@@ -111,17 +226,6 @@ extern "C" NTSTATUS DriverEntry( PDRIVER_OBJECT p_DriverObject, PUNICODE_STRING 
 		return status;
 	}
 
-	DbgPrint( "%s: p_DeviceObject = %p\n", __PRETTY_FUNCTION__, p_DeviceObject );
+	DbgPrint( "%s\n", __PRETTY_FUNCTION__ );
 	return STATUS_SUCCESS;
-}
-
-extern "C" void DriverUnload( PDRIVER_OBJECT p_DriverObject ) {
-	PDEVICE_OBJECT p_DeviceObject = p_DriverObject->DeviceObject;
-	DbgPrint( "%s: p_DeviceObject = %p\n", __PRETTY_FUNCTION__, p_DeviceObject );
-
-	// Delete the user-mode symbolic link and DeviceObject.
-	UNICODE_STRING symbolicLinkName;
-	RtlInitUnicodeString( &symbolicLinkName, SYMBOLIC_NAME_STRING );
-	IoDeleteSymbolicLink( &symbolicLinkName );
-	IoDeleteDevice( p_DeviceObject );
 }
