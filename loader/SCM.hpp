@@ -15,11 +15,11 @@ public:
 
 	explicit operator bool () const { return g_manager != nullptr; }
 
-	bool load_and_start_driver( const char * name, const char * full_file_path ) {
+	bool load_and_start_driver( const wchar_t * name, const wchar_t * full_file_path ) {
 		if ( g_manager ) {
-			SC_HANDLE service = CreateService( g_manager, name, name, SERVICE_ALL_ACCESS, SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, full_file_path, NULL, NULL, NULL, NULL, NULL );
+			SC_HANDLE service = CreateServiceW( g_manager, name, name, SERVICE_ALL_ACCESS, SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, full_file_path, NULL, NULL, NULL, NULL, NULL );
 			if ( !service && GetLastError() == ERROR_SERVICE_EXISTS ) {
-				service = OpenService( g_manager, name, SERVICE_ALL_ACCESS );
+				service = OpenServiceW( g_manager, name, SERVICE_ALL_ACCESS );
 			}
 			if ( !service ) return false;
 
@@ -31,9 +31,9 @@ public:
 		return true;
 	}
 
-	bool stop_and_unload_driver( const char * name ) {
+	bool stop_and_unload_driver( const wchar_t * name ) {
 		bool result = false;
-		if ( SC_HANDLE service = OpenService( g_manager, name, SERVICE_ALL_ACCESS ) ) {
+		if ( SC_HANDLE service = OpenServiceW( g_manager, name, SERVICE_ALL_ACCESS ) ) {
 			SERVICE_STATUS status;
 			if ( ControlService( service, SERVICE_CONTROL_STOP, &status ) ) {
 				result = DeleteService( service );

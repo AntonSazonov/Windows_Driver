@@ -7,7 +7,7 @@
 #include "SCM.hpp"
 #include "device.hpp"
 
-#include "../driver/simple_driver.hpp"
+#include "../driver/san_ram_drv.hpp"
 
 namespace {
 
@@ -22,36 +22,33 @@ void print_last_error( const char * p_title, int err = 0 ) {
 } // namespace
 
 int main() {
-	SCM		scm;
-	device	dev;
+	SCM		scm; // Service Control Manager
+	device	dev; // Device
 
-	const char *	service_name	= "simple_driver";
-	const char *	device_name		= "\\\\.\\Simple_Driver_Example";
-
-	if ( dev.open( device_name ) ) {
+	// Check if device driver already loaded and started...
+	if ( dev.open( DEVICE_NAME_STRING ) ) {
 		printf( "Opened.\n" );
 	} else {
 		printf( "Not registered/started. Trying to load driver...\n" );
 	}
 
-	// If not registered/started...
+	// If not registered/loaded/started...
 	if ( !dev ) {
 
-		// Get driver full path.
-		char full_driver_path[MAX_PATH] = {};
-		GetCurrentDirectory( MAX_PATH, full_driver_path );
-		strcat( full_driver_path, "\\simple_driver.sys" );
+		// Get driver full path
+		wchar_t full_driver_path[MAX_PATH] = {};
+		GetFullPathNameW( DRIVER_FILE_NAME_STRING, MAX_PATH, full_driver_path, NULL );
 
-		printf( "Loading: %s\n", full_driver_path );
-		if ( !scm.load_and_start_driver( service_name, full_driver_path ) ) {
+		printf( "Loading: %ls\n", DRIVER_FILE_NAME_STRING );
+		if ( !scm.load_and_start_driver( SERVICE_NAME_STRING, full_driver_path ) ) {
 			print_last_error( "Load error" );
 			return 1;
 		}
 
 		// Try to open it again...
-		if ( !dev.open( device_name ) ) {
+		if ( !dev.open( DEVICE_NAME_STRING ) ) {
 			print_last_error( "dev.open()" );
-			scm.stop_and_unload_driver( service_name );
+			scm.stop_and_unload_driver( SERVICE_NAME_STRING );
 			return 2;
 		}
 
@@ -67,7 +64,7 @@ int main() {
 	PVOID p_mapped = nullptr;
 	DWORD dwRet = 0;
 	DeviceIoControl( dev.get_handle(),
-		MY_DEVICE_IOCTL_MAP,
+		SAN_RAM_IOCTL_MAP,
 		&mem, sizeof( PHYS_MEM_DESC ),	// in
 		&p_mapped, sizeof( PVOID ),		// out
 		&dwRet, nullptr );
@@ -84,8 +81,8 @@ int main() {
 		}
 		printf( "\n" );
 
-		// Unmap memory.
-		DeviceIoControl( dev.get_handle(), MY_DEVICE_IOCTL_UNMAP, NULL, 0, NULL, 0, &dwRet, nullptr );
+		// Unmap memory
+		DeviceIoControl( dev.get_handle(), SAN_RAM_IOCTL_UNMAP, NULL, 0, NULL, 0, &dwRet, nullptr );
 	}
 
 	// Close device...
@@ -93,7 +90,7 @@ int main() {
 
 	// Stop and unregister...
 	printf( "Unloading...\n" );
-	if ( !scm.stop_and_unload_driver( "simple_driver" ) ) {
+	if ( !scm.stop_and_unload_driver( SERVICE_NAME_STRING ) ) {
 		print_last_error( "Unloading error" );
 	}
 

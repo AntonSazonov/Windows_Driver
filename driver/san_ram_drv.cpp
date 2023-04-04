@@ -1,15 +1,13 @@
 
 #include <ntddk.h>
-#include "simple_driver.hpp"
+#include "san_ram_drv.hpp"
 
-extern "C" DRIVER_INITIALIZE	DriverEntry;
-extern "C" DRIVER_UNLOAD		DriverUnload;
-
-#define NTDEVICE_NAME_STRING      L"\\Device\\Simple_Driver_Example"
-#define SYMBOLIC_NAME_STRING      L"\\DosDevices\\Simple_Driver_Example"
+//extern "C" DRIVER_INITIALIZE	DriverEntry;
+//extern "C" DRIVER_UNLOAD		DriverUnload;
 
 namespace {
 
+// Mapped memory info
 ULONG	g_size			= 0;
 PVOID	g_map			= nullptr;
 PMDL	g_mdl			= nullptr;
@@ -134,7 +132,9 @@ extern "C" NTSTATUS IoControl( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_Irp ) {
 
 	ULONG code = p_io->Parameters.DeviceIoControl.IoControlCode;
 	switch ( code ) {
-		case MY_DEVICE_IOCTL_MAP: {
+
+		// Map memory region
+		case SAN_RAM_IOCTL_MAP: {
 
 			// Check for correct parameters...
 			if ( u_buffer_in != sizeof( PHYS_MEM_DESC ) || u_buffer_out != sizeof( PVOID ) ) {
@@ -156,8 +156,9 @@ extern "C" NTSTATUS IoControl( PDEVICE_OBJECT /*p_DeviceObject*/, PIRP p_Irp ) {
 			DbgPrint( "%s: mapped at %p.\n", __PRETTY_FUNCTION__, p_mapped );
 		} break;
 
-		case MY_DEVICE_IOCTL_UNMAP:
-			DbgPrint( "%s: MY_DEVICE_IOCTL_UNMAP\n", __PRETTY_FUNCTION__ );
+		// Unmap any mapped memory
+		case SAN_RAM_IOCTL_UNMAP:
+			DbgPrint( "%s: SAN_RAM_IOCTL_UNMAP\n", __PRETTY_FUNCTION__ );
 
 			// Unmap last mapped.
 			phys_free();
@@ -200,7 +201,7 @@ extern "C" NTSTATUS DriverEntry( PDRIVER_OBJECT p_DriverObject, PUNICODE_STRING 
 		p_DriverObject,
 		0,//sizeof( DEVICE_EXTENSION ),
 		&ntDeviceName,
-		MY_DEVICE_TYPE,
+		SAN_RAM_DEVICE_TYPE,
 		FILE_DEVICE_SECURE_OPEN,
 		FALSE,
 		&p_DeviceObject );
