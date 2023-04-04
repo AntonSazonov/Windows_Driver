@@ -21,3 +21,5 @@ After registering and starting driver, you can communicate with it.
 
 
 You can view debug messages from kernel driver with [DebugView](https://learn.microsoft.com/en-us/sysinternals/downloads/debugview) tool by Mark Russinovich.
+
+![alt text](https://github.com/AntonSazonov/Windows_Driver/blob/main/screenshot.png?raw=true)
