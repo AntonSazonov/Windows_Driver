@@ -1,6 +1,10 @@
 # Simple Windows driver example
 
 Note: ***This example is intended to be compiled with GCC or Clang toolchain. I'am using MSYS2.***
+
+Tested on:
+ * Windows XP 64 (5.2.3790)
+ * Windows 11 Pro 64 (10.0.22000.1696)
  
 In order to communicate with driver, first you need to register driver in system.
 Before registering it, you need to sign it with valid certificate or sign it with any test certificate and boot Windows in 'testsigning' mode.
